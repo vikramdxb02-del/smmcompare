@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, LayoutDashboard, Search, List, LinkIcon, Database,
   BarChart3, Bell, Settings, LogOut, Menu, X, ChevronDown,
-  User, CreditCard, HelpCircle, Moon, Sun
+  User, CreditCard, HelpCircle, Moon, Sun, Shield
 } from 'lucide-react'
 
 const navigation = [
@@ -29,9 +31,19 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  // Redirect to login if not authenticated
+  if (status === 'unauthenticated') {
+    router.push('/login')
+    return null
+  }
+
+  const isAdmin = session?.user?.role === 'ADMIN'
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -94,6 +106,19 @@ export default function DashboardLayout({
 
           {/* Bottom Navigation */}
           <div className="px-4 py-4 border-t border-gray-100 space-y-1">
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all ${
+                  pathname.startsWith('/admin')
+                    ? 'bg-purple-50 text-purple-700'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <Shield className={`w-5 h-5 ${pathname.startsWith('/admin') ? 'text-purple-600' : ''}`} />
+                Admin Panel
+              </Link>
+            )}
             {bottomNavigation.map((item) => {
               const isActive = pathname === item.href
               return (
@@ -173,7 +198,7 @@ export default function DashboardLayout({
                   className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg"
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white text-sm font-medium">
-                    JD
+                    {session?.user?.name?.charAt(0)?.toUpperCase() || session?.user?.email?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-600 hidden sm:block" />
                 </button>
@@ -184,11 +209,19 @@ export default function DashboardLayout({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-2"
+                      className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-2 z-50"
                     >
                       <div className="px-4 py-3 border-b border-gray-100">
-                        <div className="font-medium text-gray-900">John Doe</div>
-                        <div className="text-sm text-gray-500">john@example.com</div>
+                        <div className="font-medium text-gray-900">{session?.user?.name || 'User'}</div>
+                        <div className="text-sm text-gray-500">{session?.user?.email}</div>
+                        {isAdmin && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                              <Shield className="w-3 h-3" />
+                              Admin
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="py-1">
                         <Link href="/dashboard/profile" className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100">
@@ -205,7 +238,10 @@ export default function DashboardLayout({
                         </Link>
                       </div>
                       <div className="border-t border-gray-100 py-1">
-                        <button className="flex items-center gap-3 w-full px-4 py-2 text-red-600 hover:bg-red-50">
+                        <button 
+                          onClick={() => signOut({ callbackUrl: '/' })}
+                          className="flex items-center gap-3 w-full px-4 py-2 text-red-600 hover:bg-red-50"
+                        >
                           <LogOut className="w-4 h-4" />
                           Sign out
                         </button>

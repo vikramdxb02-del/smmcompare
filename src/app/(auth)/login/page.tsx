@@ -1,25 +1,47 @@
 'use client'
 
 import { useState } from 'react'
+import { signIn } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { 
   Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, 
-  Chrome, Github, Loader2 
+  Chrome, Github, Loader2, AlertCircle
 } from 'lucide-react'
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     setIsLoading(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsLoading(false)
+
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError(result.error)
+        setIsLoading(false)
+      } else if (result?.ok) {
+        // Redirect based on user role
+        router.push('/dashboard')
+        router.refresh()
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -68,6 +90,14 @@ export default function LoginPage() {
               <span className="px-4 bg-white text-gray-500">or continue with email</span>
             </div>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
