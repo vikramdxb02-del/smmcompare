@@ -65,8 +65,9 @@ export async function POST(
     // Remove /api from base if it exists to avoid doubling
     const cleanBase = apiBase.replace(/\/api\/?$/, '')
 
+    // Build endpoints - Yoyomedia format FIRST
     const endpoints = [
-      // Yoyomedia format: /api with key and action parameters (try this FIRST)
+      // Yoyomedia format: /api with key and action parameters (MUST BE FIRST)
       { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
       { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' } },
       
@@ -74,14 +75,13 @@ export async function POST(
       { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
       { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' } },
       
-      // Standard REST API formats (fallback)
+      // Standard REST API formats (fallback only)
       { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
       { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
       { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
       { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
       { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
       { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
-      { url: `${cleanBase}/api/service/list`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
     ]
 
     let lastError: any = null

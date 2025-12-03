@@ -13,6 +13,7 @@ export default function ManageProvidersPage() {
   const [providers, setProviders] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<any>(null)
   const [fetchingProviderId, setFetchingProviderId] = useState<string | null>(null)
   const [fetchStatus, setFetchStatus] = useState<{ [key: string]: { success: boolean; message: string } }>({})
   
@@ -61,8 +62,12 @@ export default function ManageProvidersPage() {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch('/api/admin/providers', {
-        method: 'POST',
+      const url = editingProvider 
+        ? `/api/admin/providers/${editingProvider.id}`
+        : '/api/admin/providers'
+      
+      const response = await fetch(url, {
+        method: editingProvider ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       })
@@ -70,10 +75,11 @@ export default function ManageProvidersPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to add provider')
+        throw new Error(data.error || `Failed to ${editingProvider ? 'update' : 'add'} provider`)
       }
 
       setShowAddModal(false)
+      setEditingProvider(null)
       setFormData({ name: '', website: '', apiUrl: '', apiKey: '', description: '' })
       fetchProviders()
     } catch (err: any) {
@@ -81,6 +87,18 @@ export default function ManageProvidersPage() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleEditProvider = (provider: any) => {
+    setEditingProvider(provider)
+    setFormData({
+      name: provider.name,
+      website: provider.website,
+      apiUrl: provider.apiUrl || '',
+      apiKey: '', // Don't show API key for security
+      description: provider.description || '',
+    })
+    setShowAddModal(true)
   }
 
   const handleFetchServices = async (providerId: string) => {
@@ -232,10 +250,31 @@ export default function ManageProvidersPage() {
                       )}
                       Fetch Services
                     </button>
-                    <button className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleEditProvider(provider)}
+                      className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                    >
                       <Edit className="w-5 h-5" />
                     </button>
-                    <button className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                    <button
+                      onClick={async () => {
+                        if (confirm(`Are you sure you want to delete ${provider.name}? This will also delete all associated services.`)) {
+                          try {
+                            const response = await fetch(`/api/admin/providers/${provider.id}`, {
+                              method: 'DELETE',
+                            })
+                            if (response.ok) {
+                              fetchProviders()
+                            } else {
+                              alert('Failed to delete provider')
+                            }
+                          } catch (error) {
+                            alert('Error deleting provider')
+                          }
+                        }
+                      }}
+                      className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
                       <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
@@ -280,10 +319,13 @@ export default function ManageProvidersPage() {
               className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
             >
               <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">Add New Provider</h2>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {editingProvider ? 'Edit Provider' : 'Add New Provider'}
+                </h2>
                 <button
                   onClick={() => {
                     setShowAddModal(false)
+                    setEditingProvider(null)
                     setError('')
                     setFormData({ name: '', website: '', apiUrl: '', apiKey: '', description: '' })
                   }}
@@ -346,15 +388,15 @@ export default function ManageProvidersPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    API Key *
+                    API Key {editingProvider ? '(leave blank to keep current)' : '*'}
                   </label>
                   <input
                     type="password"
                     value={formData.apiKey}
                     onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                    placeholder="Your API key from the provider"
+                    placeholder={editingProvider ? "Leave blank to keep current API key" : "Your API key from the provider"}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                    required
+                    required={!editingProvider}
                   />
                 </div>
 
@@ -391,12 +433,12 @@ export default function ManageProvidersPage() {
                     {isSubmitting ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        Adding...
+                        {editingProvider ? 'Updating...' : 'Adding...'}
                       </>
                     ) : (
                       <>
                         <Plus className="w-5 h-5" />
-                        Add Provider
+                        {editingProvider ? 'Update Provider' : 'Add Provider'}
                       </>
                     )}
                   </button>
