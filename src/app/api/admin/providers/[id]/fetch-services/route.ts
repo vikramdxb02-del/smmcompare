@@ -142,8 +142,13 @@ export async function POST(
         const text = await response.text()
         const contentType = response.headers.get('content-type') || ''
 
-        // Check if response is HTML (error page)
-        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html') || !contentType.includes('application/json')) {
+        // Check if response is clearly HTML (error page) - be more lenient
+        const isHTML = text.trim().startsWith('<!DOCTYPE') || 
+                      text.trim().startsWith('<html') || 
+                      text.trim().startsWith('<HTML') ||
+                      (contentType.includes('text/html') && !text.trim().startsWith('[') && !text.trim().startsWith('{'))
+
+        if (isHTML) {
           if (endpointConfig.url.includes('action=services')) {
             // This is the Yoyomedia format - log more details
             console.log(`Yoyomedia format returned HTML. Status: ${response.status}, Content-Type: ${contentType}, First 200 chars: ${text.substring(0, 200)}`)
@@ -155,18 +160,29 @@ export async function POST(
         }
 
         if (!response.ok) {
-          lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text.substring(0, 200)}`)
+          // Even if not OK, try to parse as JSON (some APIs return error as JSON)
+          try {
+            const errorJson = JSON.parse(text)
+            lastError = new Error(`API Error: ${errorJson.error || errorJson.message || JSON.stringify(errorJson)}`)
+          } catch {
+            lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text.substring(0, 200)}`)
+          }
           continue
         }
 
-        // Try to parse as JSON
+        // Try to parse as JSON - be more lenient, try even if content-type doesn't say JSON
         let services
         try {
           services = JSON.parse(text)
         } catch (parseError) {
-          console.error(`JSON parse error for ${endpointConfig.url}:`, parseError)
-          console.error(`Response text (first 500 chars):`, text.substring(0, 500))
-          lastError = new Error(`Invalid JSON response. First 200 chars: ${text.substring(0, 200)}`)
+          // If it starts with [ or {, it might be JSON but with syntax error
+          if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+            console.error(`JSON parse error for ${endpointConfig.url}:`, parseError)
+            console.error(`Response text (first 500 chars):`, text.substring(0, 500))
+            lastError = new Error(`Invalid JSON format. First 200 chars: ${text.substring(0, 200)}`)
+          } else {
+            lastError = new Error(`Response is not JSON. First 200 chars: ${text.substring(0, 200)}`)
+          }
           continue
         }
         
