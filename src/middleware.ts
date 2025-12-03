@@ -1,7 +1,7 @@
 import { withAuth } from 'next-auth/middleware'
 import { NextResponse } from 'next/server'
 
-export default withAuth(
+const middleware = withAuth(
   function middleware(req) {
     const token = req.nextauth.token
     const isAdmin = token?.role === 'ADMIN'
@@ -23,11 +23,15 @@ export default withAuth(
   {
     callbacks: {
       authorized: ({ token, req }) => {
+        // Always allow /admin/create-admin
+        if (req.nextUrl.pathname === '/admin/create-admin') {
+          return true
+        }
+
         // Allow access to public pages
         if (req.nextUrl.pathname === '/' || 
             req.nextUrl.pathname.startsWith('/login') ||
-            req.nextUrl.pathname.startsWith('/register') ||
-            req.nextUrl.pathname === '/admin/create-admin') {
+            req.nextUrl.pathname.startsWith('/register')) {
           return true
         }
 
@@ -37,6 +41,8 @@ export default withAuth(
     },
   }
 )
+
+export default middleware
 
 export const config = {
   matcher: ['/dashboard/:path*', '/admin/:path*']
