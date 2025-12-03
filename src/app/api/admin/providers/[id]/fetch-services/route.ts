@@ -64,25 +64,28 @@ export async function POST(
       ? provider.apiUrl.slice(0, -1)
       : provider.apiUrl
 
-    // Remove /api from base if it exists to avoid doubling
-    const cleanBase = apiBase.replace(/\/api\/?$/, '')
+    // Remove /api, /api/v2, /api/v1 from base if it exists to avoid doubling
+    const cleanBase = apiBase.replace(/\/api(\/v\d+)?\/?$/, '')
 
-    // Build endpoints - Try POST with form data FIRST (most SMM panels use this)
-    // Based on Yoyomedia API docs: /api with key and action parameters
+    // Build endpoints - Based on Yoyomedia PHP code: POST to /api/v2 with form-encoded data
+    // The PHP code shows: api_url = 'https://yoyomedia.in/api/v2'
+    // Method: POST with form-encoded body: key=API_KEY&action=services
     const endpoints = [
-      // POST with form-encoded data (MOST COMMON for SMM panels - try this FIRST)
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 1 },
-      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 2 },
+      // Yoyomedia official format: POST to /api/v2 with form-encoded data (CORRECT FORMAT)
+      { url: `${cleanBase}/api/v2`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 1 },
       
-      // GET with query parameters (try second)
-      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 3 },
-      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 4 },
+      // Fallback: Try /api/v2 with different parameter names
+      { url: `${cleanBase}/api/v2`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 2 },
       
-      // POST with JSON body (less common but some APIs use this)
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: false, priority: 5 },
-      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: false, priority: 6 },
+      // Fallback: Try /api (without v2)
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 3 },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 4 },
       
-      // Standard REST API formats (fallback only - these probably won't work for Yoyomedia)
+      // GET with query parameters (less common but some APIs support this)
+      { url: `${cleanBase}/api/v2?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 5 },
+      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 6 },
+      
+      // Standard REST API formats (fallback only)
       { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 7 },
       { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 8 },
       { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 9 },
