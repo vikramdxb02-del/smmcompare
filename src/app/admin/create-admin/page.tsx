@@ -53,7 +53,7 @@ export default function CreateAdminPage() {
 
       setSuccess(true)
       setTimeout(() => {
-        router.push('/login')
+        router.push('/login?admin=true')
       }, 2000)
     } catch (err: any) {
       setError(err.message || 'Something went wrong')

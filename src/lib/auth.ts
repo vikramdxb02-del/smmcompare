@@ -76,13 +76,28 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as any).role
+        token.id = user.id
+      }
+      // Always fetch the latest role from database to ensure it's up to date
+      if (token.id) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { role: true }
+          })
+          if (dbUser) {
+            token.role = dbUser.role
+          }
+        } catch (error) {
+          console.error('Error fetching user role:', error)
+        }
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.role = (token.role as string) || 'USER'
-        session.user.id = token.sub || undefined
+        session.user.id = (token.id as string) || token.sub || undefined
       }
       return session
     },
