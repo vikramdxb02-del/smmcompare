@@ -51,54 +51,65 @@ export async function POST(
     }
 
     // Try multiple common SMM panel API endpoint patterns
-    const apiBase = provider.apiUrl?.endsWith('/') 
+    if (!provider.apiUrl) {
+      return NextResponse.json(
+        { error: 'Provider API URL is not set' },
+        { status: 400 }
+      )
+    }
+
+    const apiBase = provider.apiUrl.endsWith('/') 
       ? provider.apiUrl.slice(0, -1)
       : provider.apiUrl
 
+    // Remove /api from base if it exists to avoid doubling
+    const cleanBase = apiBase.replace(/\/api\/?$/, '')
+
     const endpoints = [
-      `${apiBase}/api/services`,
-      `${apiBase}/api/v2/services`,
-      `${apiBase}/services`,
-      `${apiBase}/api/v1/services`,
-      `${apiBase}/api/service/list`,
+      // Yoyomedia format: /api with key and action parameters
+      { url: `${cleanBase}/api?key=${userProvider.apiKey}&action=services`, method: 'GET' },
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' } },
+      
+      // Standard REST API formats
+      { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
+      { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
+      { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
+      { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
+      { url: `${cleanBase}/api/service/list`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
+      
+      // With query parameters
+      { url: `${cleanBase}/api/services?key=${userProvider.apiKey}`, method: 'GET' },
+      { url: `${cleanBase}/api/services?api_key=${userProvider.apiKey}`, method: 'GET' },
     ]
 
     let lastError: any = null
 
-    for (const endpoint of endpoints) {
+    for (const endpointConfig of endpoints) {
       try {
-        // Try with Bearer token
-        let response = await fetch(endpoint, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${userProvider.apiKey}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        })
-
-        // If that fails, try with API-Key header
-        if (!response.ok) {
-          response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-              'API-Key': userProvider.apiKey,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          })
+        const baseHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        }
+        
+        const customHeaders = endpointConfig.headers || {}
+        const headers: Record<string, string> = {
+          ...baseHeaders,
+          ...Object.fromEntries(
+            Object.entries(customHeaders).filter(([_, v]) => v !== undefined) as [string, string][]
+          ),
         }
 
-        // If that fails, try with key parameter
-        if (!response.ok) {
-          response = await fetch(`${endpoint}?key=${userProvider.apiKey}`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          })
+        const fetchOptions: RequestInit = {
+          method: endpointConfig.method || 'GET',
+          headers,
         }
+
+        // Add body for POST requests
+        if (endpointConfig.method === 'POST' && endpointConfig.body) {
+          fetchOptions.body = JSON.stringify(endpointConfig.body)
+        }
+
+        const response = await fetch(endpointConfig.url, fetchOptions)
 
         if (!response.ok) {
           lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -107,27 +118,37 @@ export async function POST(
 
         // Check if response is JSON
         const contentType = response.headers.get('content-type')
+        const text = await response.text()
+        
         if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text()
           if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-            lastError = new Error(`API returned HTML instead of JSON. The endpoint might be incorrect. Tried: ${endpoint}`)
-            continue
-          }
-          // Try to parse as JSON anyway
-          try {
-            const services = JSON.parse(text)
-            return await saveServices(providerId, services)
-          } catch {
-            lastError = new Error(`Invalid JSON response from: ${endpoint}`)
+            lastError = new Error(`API returned HTML instead of JSON. Tried: ${endpointConfig.url}`)
             continue
           }
         }
 
-        const services = await response.json()
+        // Try to parse as JSON
+        let services
+        try {
+          services = JSON.parse(text)
+        } catch {
+          lastError = new Error(`Invalid JSON response from: ${endpointConfig.url}`)
+          continue
+        }
+        
+        // Handle different response formats
+        // Some APIs return { data: [...] } or { services: [...] }
+        if (services.data && Array.isArray(services.data)) {
+          services = services.data
+        } else if (services.services && Array.isArray(services.services)) {
+          services = services.services
+        } else if (services.result && Array.isArray(services.result)) {
+          services = services.result
+        }
         
         // Validate services array
         if (!Array.isArray(services)) {
-          lastError = new Error(`Expected array of services, got: ${typeof services}`)
+          lastError = new Error(`Expected array of services, got: ${typeof services}. Response: ${text.substring(0, 200)}`)
           continue
         }
 
@@ -163,21 +184,22 @@ async function saveServices(providerId: string, services: any[]) {
   for (const service of services) {
     try {
       // Map common SMM panel API formats to our schema
+      // Support Yoyomedia format: Category, name, services/service, rate, min, max, type
       const serviceData = {
         providerId,
-        serviceId: String(service.id || service.service || service.service_id),
+        serviceId: String(service.id || service.service || service.service_id || service.services || ''),
         name: service.name || service.service || service.title || 'Unknown Service',
-        category: service.category || service.type || 'other',
-        type: service.type || null,
+        category: service.Category || service.category || service.type || 'other',
+        type: service.type || service.Type || null,
         rate: parseFloat(service.rate || service.price || service.cost || 0),
         minQuantity: parseInt(service.min || service.min_quantity || service.min_amount || 0),
         maxQuantity: parseInt(service.max || service.max_quantity || service.max_amount || 999999999),
-        description: service.description || null,
-        refill: Boolean(service.refill || service.refill_guarantee || false),
-        cancel: Boolean(service.cancel || service.cancel_guarantee || false),
-        dripfeed: Boolean(service.dripfeed || service.drip_feed || false),
-        avgTime: service.avg_time || service.average_time || service.time || null,
-        isActive: Boolean(service.status === 'active' || service.active !== false),
+        description: service.description || service.Description || null,
+        refill: Boolean(service.refill || service.refill_guarantee || service.Refill || false),
+        cancel: Boolean(service.cancel || service.cancel_guarantee || service.Cancel || false),
+        dripfeed: Boolean(service.dripfeed || service.drip_feed || service.Dripfeed || false),
+        avgTime: service.avg_time || service.average_time || service.time || service.Time || null,
+        isActive: Boolean(service.status === 'active' || service.active !== false || service.status !== 'inactive'),
       }
 
       await prisma.service.upsert({
