@@ -143,57 +143,55 @@ export async function POST(
         const trimmedText = text.trim()
         const contentType = response.headers.get('content-type') || ''
 
-        // If response looks like JSON (starts with [ or {), treat it as JSON regardless of content-type
-        const looksLikeJSON = trimmedText.startsWith('[') || trimmedText.startsWith('{')
-        
-        // Only reject if it's clearly HTML (not JSON)
-        const isHTML = !looksLikeJSON && (
-          trimmedText.startsWith('<!DOCTYPE') || 
-          trimmedText.startsWith('<html') || 
-          trimmedText.startsWith('<HTML')
-        )
+        // Check if response is clearly HTML
+        const isHTML = trimmedText.startsWith('<!DOCTYPE') || 
+                      trimmedText.startsWith('<html') || 
+                      trimmedText.startsWith('<HTML') ||
+                      trimmedText.startsWith('<?xml')
 
-        if (isHTML) {
-          if (endpointConfig.url.includes('action=services')) {
-            console.log(`Yoyomedia format returned HTML. Status: ${response.status}, Content-Type: ${contentType}, First 200 chars: ${trimmedText.substring(0, 200)}`)
-            lastError = new Error(`Yoyomedia API returned HTML. Check your API key and URL. Status: ${response.status}`)
-          } else {
-            lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}`)
-          }
-          continue
-        }
-
-        // If response is not OK, still try to parse as JSON (some APIs return error as JSON)
-        if (!response.ok) {
-          if (looksLikeJSON) {
-            try {
-              const errorJson = JSON.parse(text)
-              lastError = new Error(`API Error (${response.status}): ${errorJson.error || errorJson.message || JSON.stringify(errorJson)}`)
-            } catch {
-              lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
-            }
-          } else {
-            lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${trimmedText.substring(0, 200)}`)
-          }
-          continue
-        }
-
-        // Try to parse as JSON - if it looks like JSON, parse it
+        // Always try to parse as JSON first (even if status is not OK, some APIs return error as JSON)
         let services
-        if (looksLikeJSON) {
-          try {
-            services = JSON.parse(text)
-          } catch (parseError) {
-            console.error(`JSON parse error for ${endpointConfig.url}:`, parseError)
-            console.error(`Response text (first 500 chars):`, trimmedText.substring(0, 500))
-            lastError = new Error(`Invalid JSON format. First 200 chars: ${trimmedText.substring(0, 200)}`)
+        let jsonParseError = null
+        
+        // Log the response for debugging
+        console.log(`Response from ${endpointConfig.url}: Status=${response.status}, Content-Type=${contentType}, Length=${text.length}, First 100 chars: ${trimmedText.substring(0, 100)}`)
+        
+        try {
+          services = JSON.parse(text)
+          // Successfully parsed as JSON!
+          console.log(`✅ Successfully parsed JSON! Got ${Array.isArray(services) ? services.length : 'object'} items`)
+        } catch (parseError: any) {
+          jsonParseError = parseError
+          
+          // If it's clearly HTML, report as HTML
+          if (isHTML) {
+            if (endpointConfig.url.includes('action=services')) {
+              console.log(`❌ Yoyomedia format returned HTML. Status: ${response.status}, First 200 chars: ${trimmedText.substring(0, 200)}`)
+              lastError = new Error(`Yoyomedia API returned HTML. Check your API key and URL. Status: ${response.status}, First 200 chars: ${trimmedText.substring(0, 200)}`)
+            } else {
+              lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}`)
+            }
             continue
           }
-        } else {
-          // Doesn't look like JSON
-          lastError = new Error(`Response doesn't appear to be JSON. First 200 chars: ${trimmedText.substring(0, 200)}`)
+          
+          // Not HTML but also not valid JSON - show the actual error
+          console.error(`❌ JSON parse error for ${endpointConfig.url}:`, parseError.message)
+          console.error(`Response text (first 500 chars):`, trimmedText.substring(0, 500))
+          lastError = new Error(`Invalid JSON response. Status: ${response.status}, Parse Error: ${parseError.message}, First 200 chars: ${trimmedText.substring(0, 200)}`)
           continue
         }
+
+        // If response is not OK but we got JSON, it might be an error response
+        if (!response.ok) {
+          if (services && typeof services === 'object') {
+            lastError = new Error(`API Error (${response.status}): ${services.error || services.message || JSON.stringify(services)}`)
+          } else {
+            lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+          continue
+        }
+
+        // Successfully parsed JSON and response is OK!
         
         // Handle different response formats
         // Some APIs return { data: [...] } or { services: [...] }
