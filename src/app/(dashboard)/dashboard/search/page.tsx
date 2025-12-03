@@ -8,17 +8,6 @@ import {
   SlidersHorizontal, X, Check
 } from 'lucide-react'
 
-// Simulated service data
-const mockServices = [
-  { id: 1, provider: 'SMMKing', providerId: 'SK', service: 'Instagram Followers [Real] [Refill 30D]', price: 0.45, min: 100, max: 100000, avgTime: '2h', category: 'instagram' },
-  { id: 2, provider: 'BoostPanel', providerId: 'BP', service: 'Instagram Followers [HQ] [No Drop]', price: 0.52, min: 50, max: 50000, avgTime: '4h', category: 'instagram' },
-  { id: 3, provider: 'SocialPro', providerId: 'SP', service: 'Instagram Followers [Premium] [Lifetime]', price: 0.38, min: 100, max: 200000, avgTime: '1h', category: 'instagram' },
-  { id: 4, provider: 'MediaBoost', providerId: 'MB', service: 'Instagram Followers [Fast] [Instant Start]', price: 0.61, min: 100, max: 75000, avgTime: '30m', category: 'instagram' },
-  { id: 5, provider: 'SMMKing', providerId: 'SK', service: 'YouTube Views [Real] [Retention 70%]', price: 0.89, min: 500, max: 1000000, avgTime: '6h', category: 'youtube' },
-  { id: 6, provider: 'ViewsHub', providerId: 'VH', service: 'YouTube Views [Premium] [High Retention]', price: 1.20, min: 1000, max: 500000, avgTime: '12h', category: 'youtube' },
-  { id: 7, provider: 'TikTokPro', providerId: 'TP', service: 'TikTok Likes [Real] [Fast]', price: 0.25, min: 50, max: 50000, avgTime: '15m', category: 'tiktok' },
-  { id: 8, provider: 'SocialPro', providerId: 'SP', service: 'TikTok Followers [HQ] [No Drop]', price: 0.75, min: 100, max: 100000, avgTime: '2h', category: 'tiktok' },
-]
 
 const categories = [
   { id: 'all', label: 'All Services', icon: Search },
@@ -43,61 +32,56 @@ export default function SearchServicesPage() {
   const [sortBy, setSortBy] = useState<'price' | 'name' | 'provider'>('price')
   const [isLoading, setIsLoading] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
-  const [selectedServices, setSelectedServices] = useState<number[]>([])
-  const [results, setResults] = useState(mockServices)
+  const [selectedServices, setSelectedServices] = useState<string[]>([])
+  const [results, setResults] = useState<any[]>([])
   const [searchTime, setSearchTime] = useState(0)
+  const [totalResults, setTotalResults] = useState(0)
 
-  // Simulate search with debounce
-  const performSearch = useCallback(() => {
+  // Fetch services from API
+  const performSearch = useCallback(async () => {
     setIsLoading(true)
     const startTime = performance.now()
 
-    // Simulate API call
-    setTimeout(() => {
-      let filtered = mockServices
-
-      // Filter by category
-      if (selectedCategory !== 'all') {
-        filtered = filtered.filter(s => s.category === selectedCategory)
-      }
-
-      // Filter by search query
-      if (searchQuery) {
-        filtered = filtered.filter(s =>
-          s.service.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.provider.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      }
-
-      // Filter by price range
-      if (selectedPriceRange !== 'all') {
-        const [min, max] = selectedPriceRange.split('-').map(Number)
-        if (max) {
-          filtered = filtered.filter(s => s.price >= min && s.price < max)
-        } else {
-          filtered = filtered.filter(s => s.price >= min)
-        }
-      }
-
-      // Sort
-      filtered.sort((a, b) => {
-        if (sortBy === 'price') return a.price - b.price
-        if (sortBy === 'name') return a.service.localeCompare(b.service)
-        return a.provider.localeCompare(b.provider)
+    try {
+      const params = new URLSearchParams({
+        q: searchQuery,
+        category: selectedCategory,
+        priceRange: selectedPriceRange,
+        sortBy: sortBy,
+        page: '1',
+        limit: '1000', // Get all results for now
       })
 
-      setResults(filtered)
-      setSearchTime(Math.round(performance.now() - startTime))
+      const response = await fetch(`/api/services/search?${params}`)
+      const data = await response.json()
+
+      if (response.ok) {
+        setResults(data.services || [])
+        setTotalResults(data.total || 0)
+        setSearchTime(Math.round(performance.now() - startTime))
+      } else {
+        console.error('Error fetching services:', data.error)
+        setResults([])
+        setTotalResults(0)
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error)
+      setResults([])
+      setTotalResults(0)
+    } finally {
       setIsLoading(false)
-    }, 100)
+    }
   }, [searchQuery, selectedCategory, selectedPriceRange, sortBy])
 
+  // Load services on mount and when filters change
   useEffect(() => {
-    const debounce = setTimeout(performSearch, 200)
+    const debounce = setTimeout(() => {
+      performSearch()
+    }, 200)
     return () => clearTimeout(debounce)
-  }, [performSearch])
+  }, [searchQuery, selectedCategory, selectedPriceRange, sortBy])
 
-  const toggleServiceSelection = (id: number) => {
+  const toggleServiceSelection = (id: string) => {
     setSelectedServices(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     )
@@ -226,21 +210,23 @@ export default function SearchServicesPage() {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-medium text-gray-900">
-              {results.length.toLocaleString()} services found
+              {totalResults.toLocaleString()} services found
             </span>
             <span className="text-sm text-gray-500">
               in {searchTime}ms
             </span>
             {isLoading && <Loader2 className="w-4 h-4 animate-spin text-purple-600" />}
           </div>
-          <button
-            onClick={() => setSelectedServices(
-              selectedServices.length === results.length ? [] : results.map(r => r.id)
-            )}
-            className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-          >
-            {selectedServices.length === results.length ? 'Deselect All' : 'Select All'}
-          </button>
+          {results.length > 0 && (
+            <button
+              onClick={() => setSelectedServices(
+                selectedServices.length === results.length ? [] : results.map(r => r.id)
+              )}
+              className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+            >
+              {selectedServices.length === results.length ? 'Deselect All' : 'Select All'}
+            </button>
+          )}
         </div>
 
         {/* Results Table */}
@@ -267,77 +253,97 @@ export default function SearchServicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {results.map((service, i) => (
-                <motion.tr
-                  key={service.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.02 }}
-                  className={`hover:bg-gray-50 transition-colors ${
-                    selectedServices.includes(service.id) ? 'bg-purple-50' : ''
-                  }`}
-                >
-                  <td className="px-6 py-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedServices.includes(service.id)}
-                      onChange={() => toggleServiceSelection(service.id)}
-                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-purple-600 mx-auto" />
+                    <p className="text-gray-500 mt-2">Loading services...</p>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
-                        {service.providerId}
+                </tr>
+              ) : results.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <p className="text-gray-500">No services found. Try adjusting your search or filters.</p>
+                  </td>
+                </tr>
+              ) : (
+                results.map((service, i) => (
+                  <motion.tr
+                    key={service.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    className={`hover:bg-gray-50 transition-colors ${
+                      selectedServices.includes(service.id) ? 'bg-purple-50' : ''
+                    }`}
+                  >
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedServices.includes(service.id)}
+                        onChange={() => toggleServiceSelection(service.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                          {service.providerId}
+                        </div>
+                        <span className="font-medium text-gray-900">{service.provider}</span>
                       </div>
-                      <span className="font-medium text-gray-900">{service.provider}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="max-w-md">
-                      <div className="font-medium text-gray-900 truncate">{service.service}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">${service.price.toFixed(2)}</span>
-                    <span className="text-gray-500 text-sm">/1K</span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-600 text-sm">
-                    {service.min.toLocaleString()} - {service.max.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600 text-sm">
-                    {service.avgTime}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                        <Star className="w-4 h-4 text-gray-400" />
-                      </button>
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                        <ExternalLink className="w-4 h-4 text-gray-400" />
-                      </button>
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="max-w-md">
+                        <div className="font-medium text-gray-900 truncate">{service.service}</div>
+                        {service.description && (
+                          <div className="text-sm text-gray-500 truncate mt-1">{service.description}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="font-semibold text-gray-900">${service.price.toFixed(2)}</span>
+                      <span className="text-gray-500 text-sm">/1K</span>
+                    </td>
+                    <td className="px-6 py-4 text-gray-600 text-sm">
+                      {service.min.toLocaleString()} - {service.max.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600 text-sm">
+                      {service.avgTime}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                          <Star className="w-4 h-4 text-gray-400" />
+                        </button>
+                        <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                          <ExternalLink className="w-4 h-4 text-gray-400" />
+                        </button>
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Pagination */}
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-sm text-gray-500">
-            Showing 1-{results.length} of {results.length} results
-          </span>
-          <div className="flex items-center gap-2">
-            <button className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" disabled>
-              Previous
-            </button>
-            <button className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" disabled>
-              Next
-            </button>
+        {results.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing 1-{results.length} of {totalResults.toLocaleString()} results
+            </span>
+            <div className="flex items-center gap-2">
+              <button className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" disabled>
+                Previous
+              </button>
+              <button className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50" disabled>
+                Next
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
