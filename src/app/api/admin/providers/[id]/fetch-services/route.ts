@@ -45,10 +45,12 @@ export async function POST(
 
     if (!userProvider || !userProvider.apiKey) {
       return NextResponse.json(
-        { error: 'API key not found for this provider' },
+        { error: 'API key not found for this provider. Please edit the provider and add your API key.' },
         { status: 400 }
       )
     }
+
+    console.log(`Fetching services for provider: ${provider.name}, API URL: ${provider.apiUrl}, Has API Key: ${!!userProvider.apiKey}`)
 
     // Try multiple common SMM panel API endpoint patterns
     if (!provider.apiUrl) {
@@ -66,23 +68,23 @@ export async function POST(
     const cleanBase = apiBase.replace(/\/api\/?$/, '')
 
     // Build endpoints - Yoyomedia format FIRST
+    // Based on Yoyomedia API docs: /api?key=KEY&action=services
     const endpoints = [
       // Yoyomedia format: /api with key and action parameters (MUST BE FIRST)
-      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true },
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: false },
+      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 1 },
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 2 },
       
       // Alternative Yoyomedia formats
-      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
-      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true },
+      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 3 },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 4 },
       
-      // Standard REST API formats (fallback only)
-      { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
-      { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
-      { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
-      { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
-      { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
-      { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
+      // Standard REST API formats (fallback only - these probably won't work for Yoyomedia)
+      { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 5 },
+      { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 6 },
+      { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 7 },
+      { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 8 },
+      { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 9 },
+      { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 10 },
     ]
 
     let lastError: any = null
@@ -166,18 +168,18 @@ export async function POST(
           // If it's clearly HTML, report as HTML
           if (isHTML) {
             if (endpointConfig.url.includes('action=services')) {
-              console.log(`❌ Yoyomedia format returned HTML. Status: ${response.status}, First 200 chars: ${trimmedText.substring(0, 200)}`)
-              lastError = new Error(`Yoyomedia API returned HTML. Check your API key and URL. Status: ${response.status}, First 200 chars: ${trimmedText.substring(0, 200)}`)
+              console.log(`❌ Yoyomedia format returned HTML. Status: ${response.status}, First 500 chars: ${trimmedText.substring(0, 500)}`)
+              lastError = new Error(`Yoyomedia API returned HTML instead of JSON. Status: ${response.status}. This usually means the API key is wrong or the endpoint is incorrect. Response preview: ${trimmedText.substring(0, 300)}`)
             } else {
-              lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}`)
+              lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}, Response: ${trimmedText.substring(0, 300)}`)
             }
             continue
           }
           
           // Not HTML but also not valid JSON - show the actual error
           console.error(`❌ JSON parse error for ${endpointConfig.url}:`, parseError.message)
-          console.error(`Response text (first 500 chars):`, trimmedText.substring(0, 500))
-          lastError = new Error(`Invalid JSON response. Status: ${response.status}, Parse Error: ${parseError.message}, First 200 chars: ${trimmedText.substring(0, 200)}`)
+          console.error(`Response text (first 1000 chars):`, trimmedText.substring(0, 1000))
+          lastError = new Error(`Invalid JSON response. Status: ${response.status}, Parse Error: ${parseError.message}, Response preview: ${trimmedText.substring(0, 300)}`)
           continue
         }
 
@@ -216,12 +218,13 @@ export async function POST(
       }
     }
 
-    // If all endpoints failed
+    // If all endpoints failed, return detailed error
     return NextResponse.json(
       { 
         error: `Failed to fetch services from provider API. ${lastError?.message || 'All endpoints failed. Please check your API URL and key.'}`,
         details: `Tried ${triedEndpoints.length} endpoints. First tried: ${triedEndpoints[0]}`,
-        allEndpoints: triedEndpoints.slice(0, 5) // Show first 5 for debugging
+        allEndpoints: triedEndpoints.slice(0, 5), // Show first 5 for debugging
+        suggestion: 'Check Vercel function logs for detailed response information. Make sure your API URL is exactly: https://yoyomedia.in (no /api at the end)'
       },
       { status: 400 }
     )
