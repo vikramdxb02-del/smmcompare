@@ -151,8 +151,12 @@ export default function ManageProvidersPage() {
               </div>
             </div>
             <button
-              onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-medium rounded-lg hover:shadow-lg transition-all flex items-center gap-2"
+              onClick={() => {
+                console.log('Add Provider clicked')
+                setShowAddModal(true)
+              }}
+              type="button"
+              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-medium rounded-lg hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
             >
               <Plus className="w-5 h-5" />
               Add Provider
@@ -182,8 +186,12 @@ export default function ManageProvidersPage() {
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No Providers Yet</h3>
             <p className="text-gray-600 mb-6">Get started by adding your first SMM panel provider.</p>
             <button
-              onClick={() => setShowAddModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-medium rounded-lg hover:shadow-lg transition-all"
+              onClick={() => {
+                console.log('Add Your First Provider clicked')
+                setShowAddModal(true)
+              }}
+              type="button"
+              className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-medium rounded-lg hover:shadow-lg transition-all cursor-pointer"
             >
               Add Your First Provider
             </button>
@@ -257,7 +265,14 @@ export default function ManageProvidersPage() {
       {/* Add Provider Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowAddModal(false)
+              }
+            }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
