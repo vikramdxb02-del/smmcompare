@@ -113,7 +113,11 @@ export default function ManageProvidersPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch services')
+        // Show detailed error message
+        const errorMsg = data.error || 'Failed to fetch services'
+        const details = data.details ? `\n${data.details}` : ''
+        const suggestion = data.suggestion ? `\n\n💡 ${data.suggestion}` : ''
+        throw new Error(`${errorMsg}${details}${suggestion}`)
       }
 
       setFetchStatus(prev => ({
