@@ -67,24 +67,28 @@ export async function POST(
     // Remove /api from base if it exists to avoid doubling
     const cleanBase = apiBase.replace(/\/api\/?$/, '')
 
-    // Build endpoints - Yoyomedia format FIRST
-    // Based on Yoyomedia API docs: /api?key=KEY&action=services
+    // Build endpoints - Try POST with form data FIRST (most SMM panels use this)
+    // Based on Yoyomedia API docs: /api with key and action parameters
     const endpoints = [
-      // Yoyomedia format: /api with key and action parameters (MUST BE FIRST)
-      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 1 },
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 2 },
+      // POST with form-encoded data (MOST COMMON for SMM panels - try this FIRST)
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true, priority: 1 },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 2 },
       
-      // Alternative Yoyomedia formats
-      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 3 },
-      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true, priority: 4 },
+      // GET with query parameters (try second)
+      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 3 },
+      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET', priority: 4 },
+      
+      // POST with JSON body (less common but some APIs use this)
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: false, priority: 5 },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: false, priority: 6 },
       
       // Standard REST API formats (fallback only - these probably won't work for Yoyomedia)
-      { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 5 },
-      { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 6 },
-      { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 7 },
-      { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 8 },
-      { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 9 },
-      { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 10 },
+      { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 7 },
+      { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET', priority: 8 },
+      { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 9 },
+      { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 10 },
+      { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey }, priority: 11 },
+      { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` }, priority: 12 },
     ]
 
     let lastError: any = null
@@ -165,13 +169,29 @@ export async function POST(
         } catch (parseError: any) {
           jsonParseError = parseError
           
-          // If it's clearly HTML, report as HTML
+          // If it's clearly HTML, try to extract error message
           if (isHTML) {
+            // Try to extract error message from HTML
+            let errorMessage = 'API returned HTML instead of JSON'
+            const titleMatch = trimmedText.match(/<title>(.*?)<\/title>/i)
+            const errorMatch = trimmedText.match(/error[^>]*>([^<]+)/i) || trimmedText.match(/Error:?\s*([^<\n]+)/i)
+            
+            if (titleMatch) {
+              errorMessage = `API Error: ${titleMatch[1]}`
+            } else if (errorMatch) {
+              errorMessage = `API Error: ${errorMatch[1].trim()}`
+            }
+            
+            // Check if it's an authentication error
+            if (trimmedText.toLowerCase().includes('invalid') || trimmedText.toLowerCase().includes('unauthorized') || trimmedText.toLowerCase().includes('api key')) {
+              errorMessage = 'Invalid API key or authentication failed. Please check your API key.'
+            }
+            
             if (endpointConfig.url.includes('action=services')) {
-              console.log(`❌ Yoyomedia format returned HTML. Status: ${response.status}, First 500 chars: ${trimmedText.substring(0, 500)}`)
-              lastError = new Error(`Yoyomedia API returned HTML instead of JSON. Status: ${response.status}. This usually means the API key is wrong or the endpoint is incorrect. Response preview: ${trimmedText.substring(0, 300)}`)
+              console.log(`❌ Yoyomedia format returned HTML. Status: ${response.status}, Error: ${errorMessage}`)
+              lastError = new Error(`${errorMessage}. Status: ${response.status}. This usually means the API key is wrong or the endpoint format is incorrect.`)
             } else {
-              lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}, Response: ${trimmedText.substring(0, 300)}`)
+              lastError = new Error(`${errorMessage}. Status: ${response.status}`)
             }
             continue
           }
