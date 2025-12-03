@@ -69,11 +69,12 @@ export async function POST(
     const endpoints = [
       // Yoyomedia format: /api with key and action parameters (MUST BE FIRST)
       { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
-      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' } },
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: true },
+      { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' }, formData: false },
       
       // Alternative Yoyomedia formats
       { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
-      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' } },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' }, formData: true },
       
       // Standard REST API formats (fallback only)
       { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
@@ -91,9 +92,20 @@ export async function POST(
       triedEndpoints.push(endpointConfig.url)
       
       try {
+        // Determine content type based on formData flag
+        const isFormData = (endpointConfig as any).formData === true
+        
         const baseHeaders: Record<string, string> = {
-          'Content-Type': 'application/json',
           'Accept': 'application/json',
+        }
+        
+        // Set Content-Type based on whether it's form data or JSON
+        if (endpointConfig.method === 'POST') {
+          if (isFormData) {
+            baseHeaders['Content-Type'] = 'application/x-www-form-urlencoded'
+          } else {
+            baseHeaders['Content-Type'] = 'application/json'
+          }
         }
         
         const customHeaders = endpointConfig.headers || {}
@@ -111,34 +123,50 @@ export async function POST(
 
         // Add body for POST requests
         if (endpointConfig.method === 'POST' && endpointConfig.body) {
-          fetchOptions.body = JSON.stringify(endpointConfig.body)
+          if (isFormData) {
+            // Convert to URL-encoded form data
+            const formData = new URLSearchParams()
+            Object.entries(endpointConfig.body).forEach(([key, value]) => {
+              formData.append(key, String(value))
+            })
+            fetchOptions.body = formData.toString()
+          } else {
+            fetchOptions.body = JSON.stringify(endpointConfig.body)
+          }
         }
 
         console.log(`Trying endpoint: ${endpointConfig.method || 'GET'} ${endpointConfig.url}`)
         const response = await fetch(endpointConfig.url, fetchOptions)
 
-        if (!response.ok) {
-          lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
+        // Get response text first
+        const text = await response.text()
+        const contentType = response.headers.get('content-type') || ''
+
+        // Check if response is HTML (error page)
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html') || !contentType.includes('application/json')) {
+          if (endpointConfig.url.includes('action=services')) {
+            // This is the Yoyomedia format - log more details
+            console.log(`Yoyomedia format returned HTML. Status: ${response.status}, Content-Type: ${contentType}, First 200 chars: ${text.substring(0, 200)}`)
+            lastError = new Error(`Yoyomedia API returned HTML. Check your API key and URL. Status: ${response.status}`)
+          } else {
+            lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}`)
+          }
           continue
         }
 
-        // Check if response is JSON
-        const contentType = response.headers.get('content-type')
-        const text = await response.text()
-        
-        if (!contentType || !contentType.includes('application/json')) {
-          if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-            lastError = new Error(`API returned HTML instead of JSON. Tried: ${endpointConfig.url}`)
-            continue
-          }
+        if (!response.ok) {
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text.substring(0, 200)}`)
+          continue
         }
 
         // Try to parse as JSON
         let services
         try {
           services = JSON.parse(text)
-        } catch {
-          lastError = new Error(`Invalid JSON response from: ${endpointConfig.url}`)
+        } catch (parseError) {
+          console.error(`JSON parse error for ${endpointConfig.url}:`, parseError)
+          console.error(`Response text (first 500 chars):`, text.substring(0, 500))
+          lastError = new Error(`Invalid JSON response. First 200 chars: ${text.substring(0, 200)}`)
           continue
         }
         
