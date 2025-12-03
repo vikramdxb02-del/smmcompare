@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { signIn, useSession } from 'next-auth/react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { 
@@ -17,6 +17,22 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { data: session } = useSession()
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (session?.user) {
+      const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+      if (session.user.role === 'ADMIN' && callbackUrl.includes('/admin')) {
+        router.push('/admin')
+      } else if (session.user.role === 'ADMIN') {
+        router.push('/admin')
+      } else {
+        router.push(callbackUrl)
+      }
+    }
+  }, [session, router, searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,6 +40,7 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
+      const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
       const result = await signIn('credentials', {
         email,
         password,
@@ -34,9 +51,26 @@ export default function LoginPage() {
         setError(result.error)
         setIsLoading(false)
       } else if (result?.ok) {
-        // Redirect based on user role
-        router.push('/dashboard')
-        router.refresh()
+        // Wait a moment for session to update, then redirect
+        setTimeout(() => {
+          // Check if user is admin by fetching session
+          fetch('/api/auth/session')
+            .then(res => res.json())
+            .then(data => {
+              if (data?.user?.role === 'ADMIN') {
+                router.push('/admin')
+              } else if (callbackUrl.includes('/admin')) {
+                router.push('/admin')
+              } else {
+                router.push(callbackUrl)
+              }
+              router.refresh()
+            })
+            .catch(() => {
+              router.push(callbackUrl)
+              router.refresh()
+            })
+        }, 500)
       }
     } catch (err) {
       setError('Something went wrong. Please try again.')
