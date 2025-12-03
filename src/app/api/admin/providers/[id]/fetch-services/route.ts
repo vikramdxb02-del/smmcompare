@@ -50,47 +50,102 @@ export async function POST(
       )
     }
 
-    // Fetch services from provider API
-    // Most SMM panels use similar API endpoints
-    const apiUrl = provider.apiUrl?.endsWith('/') 
-      ? `${provider.apiUrl}api/services` 
-      : `${provider.apiUrl}/api/services`
+    // Try multiple common SMM panel API endpoint patterns
+    const apiBase = provider.apiUrl?.endsWith('/') 
+      ? provider.apiUrl.slice(0, -1)
+      : provider.apiUrl
 
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${userProvider.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    })
+    const endpoints = [
+      `${apiBase}/api/services`,
+      `${apiBase}/api/v2/services`,
+      `${apiBase}/services`,
+      `${apiBase}/api/v1/services`,
+      `${apiBase}/api/service/list`,
+    ]
 
-    if (!response.ok) {
-      // Try alternative API formats
-      const altUrl = provider.apiUrl?.endsWith('/')
-        ? `${provider.apiUrl}api/v2/services`
-        : `${provider.apiUrl}/api/v2/services`
-      
-      const altResponse = await fetch(altUrl, {
-        method: 'GET',
-        headers: {
-          'API-Key': userProvider.apiKey,
-          'Content-Type': 'application/json',
-        },
-      })
+    let lastError: any = null
 
-      if (!altResponse.ok) {
-        return NextResponse.json(
-          { error: `Failed to fetch services: ${altResponse.statusText}` },
-          { status: altResponse.status }
-        )
+    for (const endpoint of endpoints) {
+      try {
+        // Try with Bearer token
+        let response = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${userProvider.apiKey}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        })
+
+        // If that fails, try with API-Key header
+        if (!response.ok) {
+          response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'API-Key': userProvider.apiKey,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+          })
+        }
+
+        // If that fails, try with key parameter
+        if (!response.ok) {
+          response = await fetch(`${endpoint}?key=${userProvider.apiKey}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+          })
+        }
+
+        if (!response.ok) {
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
+          continue
+        }
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type')
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text()
+          if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+            lastError = new Error(`API returned HTML instead of JSON. The endpoint might be incorrect. Tried: ${endpoint}`)
+            continue
+          }
+          // Try to parse as JSON anyway
+          try {
+            const services = JSON.parse(text)
+            return await saveServices(providerId, services)
+          } catch {
+            lastError = new Error(`Invalid JSON response from: ${endpoint}`)
+            continue
+          }
+        }
+
+        const services = await response.json()
+        
+        // Validate services array
+        if (!Array.isArray(services)) {
+          lastError = new Error(`Expected array of services, got: ${typeof services}`)
+          continue
+        }
+
+        return await saveServices(providerId, services)
+      } catch (error: any) {
+        lastError = error
+        continue
       }
-
-      const services = await altResponse.json()
-      return await saveServices(providerId, services)
     }
 
-    const services = await response.json()
-    return await saveServices(providerId, services)
+    // If all endpoints failed
+    return NextResponse.json(
+      { 
+        error: `Failed to fetch services from provider API. ${lastError?.message || 'All endpoints failed. Please check your API URL and key.'}`,
+        details: `Tried endpoints: ${endpoints.join(', ')}`
+      },
+      { status: 400 }
+    )
   } catch (error: any) {
     console.error('Error fetching services:', error)
     return NextResponse.json(
