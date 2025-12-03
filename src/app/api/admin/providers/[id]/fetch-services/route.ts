@@ -140,18 +140,22 @@ export async function POST(
 
         // Get response text first
         const text = await response.text()
+        const trimmedText = text.trim()
         const contentType = response.headers.get('content-type') || ''
 
-        // Check if response is clearly HTML (error page) - be more lenient
-        const isHTML = text.trim().startsWith('<!DOCTYPE') || 
-                      text.trim().startsWith('<html') || 
-                      text.trim().startsWith('<HTML') ||
-                      (contentType.includes('text/html') && !text.trim().startsWith('[') && !text.trim().startsWith('{'))
+        // If response looks like JSON (starts with [ or {), treat it as JSON regardless of content-type
+        const looksLikeJSON = trimmedText.startsWith('[') || trimmedText.startsWith('{')
+        
+        // Only reject if it's clearly HTML (not JSON)
+        const isHTML = !looksLikeJSON && (
+          trimmedText.startsWith('<!DOCTYPE') || 
+          trimmedText.startsWith('<html') || 
+          trimmedText.startsWith('<HTML')
+        )
 
         if (isHTML) {
           if (endpointConfig.url.includes('action=services')) {
-            // This is the Yoyomedia format - log more details
-            console.log(`Yoyomedia format returned HTML. Status: ${response.status}, Content-Type: ${contentType}, First 200 chars: ${text.substring(0, 200)}`)
+            console.log(`Yoyomedia format returned HTML. Status: ${response.status}, Content-Type: ${contentType}, First 200 chars: ${trimmedText.substring(0, 200)}`)
             lastError = new Error(`Yoyomedia API returned HTML. Check your API key and URL. Status: ${response.status}`)
           } else {
             lastError = new Error(`API returned HTML instead of JSON. Status: ${response.status}`)
@@ -159,30 +163,35 @@ export async function POST(
           continue
         }
 
+        // If response is not OK, still try to parse as JSON (some APIs return error as JSON)
         if (!response.ok) {
-          // Even if not OK, try to parse as JSON (some APIs return error as JSON)
-          try {
-            const errorJson = JSON.parse(text)
-            lastError = new Error(`API Error: ${errorJson.error || errorJson.message || JSON.stringify(errorJson)}`)
-          } catch {
-            lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text.substring(0, 200)}`)
+          if (looksLikeJSON) {
+            try {
+              const errorJson = JSON.parse(text)
+              lastError = new Error(`API Error (${response.status}): ${errorJson.error || errorJson.message || JSON.stringify(errorJson)}`)
+            } catch {
+              lastError = new Error(`HTTP ${response.status}: ${response.statusText}`)
+            }
+          } else {
+            lastError = new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${trimmedText.substring(0, 200)}`)
           }
           continue
         }
 
-        // Try to parse as JSON - be more lenient, try even if content-type doesn't say JSON
+        // Try to parse as JSON - if it looks like JSON, parse it
         let services
-        try {
-          services = JSON.parse(text)
-        } catch (parseError) {
-          // If it starts with [ or {, it might be JSON but with syntax error
-          if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+        if (looksLikeJSON) {
+          try {
+            services = JSON.parse(text)
+          } catch (parseError) {
             console.error(`JSON parse error for ${endpointConfig.url}:`, parseError)
-            console.error(`Response text (first 500 chars):`, text.substring(0, 500))
-            lastError = new Error(`Invalid JSON format. First 200 chars: ${text.substring(0, 200)}`)
-          } else {
-            lastError = new Error(`Response is not JSON. First 200 chars: ${text.substring(0, 200)}`)
+            console.error(`Response text (first 500 chars):`, trimmedText.substring(0, 500))
+            lastError = new Error(`Invalid JSON format. First 200 chars: ${trimmedText.substring(0, 200)}`)
+            continue
           }
+        } else {
+          // Doesn't look like JSON
+          lastError = new Error(`Response doesn't appear to be JSON. First 200 chars: ${trimmedText.substring(0, 200)}`)
           continue
         }
         
