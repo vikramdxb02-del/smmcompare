@@ -66,25 +66,30 @@ export async function POST(
     const cleanBase = apiBase.replace(/\/api\/?$/, '')
 
     const endpoints = [
-      // Yoyomedia format: /api with key and action parameters
-      { url: `${cleanBase}/api?key=${userProvider.apiKey}&action=services`, method: 'GET' },
+      // Yoyomedia format: /api with key and action parameters (try this FIRST)
+      { url: `${cleanBase}/api?key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
       { url: `${cleanBase}/api`, method: 'POST', body: { key: userProvider.apiKey, action: 'services' } },
       
-      // Standard REST API formats
+      // Alternative Yoyomedia formats
+      { url: `${cleanBase}/api?api_key=${encodeURIComponent(userProvider.apiKey)}&action=services`, method: 'GET' },
+      { url: `${cleanBase}/api`, method: 'POST', body: { api_key: userProvider.apiKey, action: 'services' } },
+      
+      // Standard REST API formats (fallback)
+      { url: `${cleanBase}/api/services?key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
+      { url: `${cleanBase}/api/services?api_key=${encodeURIComponent(userProvider.apiKey)}`, method: 'GET' },
       { url: `${cleanBase}/api/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
       { url: `${cleanBase}/api/v2/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
       { url: `${cleanBase}/services`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
       { url: `${cleanBase}/api/v1/services`, method: 'GET', headers: { 'Authorization': `Bearer ${userProvider.apiKey}` } },
       { url: `${cleanBase}/api/service/list`, method: 'GET', headers: { 'API-Key': userProvider.apiKey } },
-      
-      // With query parameters
-      { url: `${cleanBase}/api/services?key=${userProvider.apiKey}`, method: 'GET' },
-      { url: `${cleanBase}/api/services?api_key=${userProvider.apiKey}`, method: 'GET' },
     ]
 
     let lastError: any = null
+    const triedEndpoints: string[] = []
 
     for (const endpointConfig of endpoints) {
+      triedEndpoints.push(endpointConfig.url)
+      
       try {
         const baseHeaders: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -109,6 +114,7 @@ export async function POST(
           fetchOptions.body = JSON.stringify(endpointConfig.body)
         }
 
+        console.log(`Trying endpoint: ${endpointConfig.method || 'GET'} ${endpointConfig.url}`)
         const response = await fetch(endpointConfig.url, fetchOptions)
 
         if (!response.ok) {
@@ -163,7 +169,8 @@ export async function POST(
     return NextResponse.json(
       { 
         error: `Failed to fetch services from provider API. ${lastError?.message || 'All endpoints failed. Please check your API URL and key.'}`,
-        details: `Tried endpoints: ${endpoints.join(', ')}`
+        details: `Tried ${triedEndpoints.length} endpoints. First tried: ${triedEndpoints[0]}`,
+        allEndpoints: triedEndpoints.slice(0, 5) // Show first 5 for debugging
       },
       { status: 400 }
     )
