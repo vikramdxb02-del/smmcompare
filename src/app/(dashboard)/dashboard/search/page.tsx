@@ -244,6 +244,7 @@ export default function SearchServicesPage() {
                     className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                   />
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Provider</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Service</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Price</th>
@@ -255,14 +256,14 @@ export default function SearchServicesPage() {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={8} className="px-6 py-12 text-center">
                     <Loader2 className="w-6 h-6 animate-spin text-purple-600 mx-auto" />
                     <p className="text-gray-500 mt-2">Loading services...</p>
                   </td>
                 </tr>
               ) : results.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={8} className="px-6 py-12 text-center">
                     <p className="text-gray-500">No services found. Try adjusting your search or filters.</p>
                   </td>
                 </tr>
@@ -284,6 +285,9 @@ export default function SearchServicesPage() {
                         onChange={() => toggleServiceSelection(service.id)}
                         className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                       />
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="font-mono text-sm font-semibold text-gray-700">{service.serviceId}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
